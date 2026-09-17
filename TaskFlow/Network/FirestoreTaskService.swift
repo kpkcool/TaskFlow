@@ -7,11 +7,9 @@
 //  FirestoreTaskServiceProtocol.
 //
 //  This file compiles two ways on purpose:
-//   - With the Firebase SPM package added: real Firestore reads/writes.
-//   - Without it (a fresh checkout before running `File > Add Package
-//     Dependencies`): a stub that reports "network unavailable", so the
-//     project builds and the offline-first path is fully exercisable even
-//     before Firebase is wired up. See README for how to add the package.
+//   - With FirebaseFirestore linked: real Firestore reads/writes.
+//   - Without it: a local-only fallback that reports "network unavailable",
+//     keeping the offline-first path buildable and testable.
 //
 
 import Foundation
@@ -133,12 +131,6 @@ final class FirestoreTaskService: FirestoreTaskServiceProtocol, @unchecked Senda
         )
     }
 }
-
-// Every method throws .networkUnavailable, which is why tasks show the orange ⚠ sync badge
-// and "Syncing N changes..." never succeeds.
-// Once completed the Firebase integration steps in FirebaseService.swift,
-// this entire #else block stops compiling and the real Firestore
-// implementation above takes over automatically. No edits to this file needed.
 
 #else
 

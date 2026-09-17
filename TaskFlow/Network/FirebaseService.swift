@@ -2,10 +2,9 @@
 //  FirebaseService.swift
 //  TaskFlow
 //
-//  Owns Firebase bootstrap. Deliberately tolerant of a missing
-//  GoogleService-Info.plist (or the SPM package not being added yet) so the
-//  rest of the app — which is offline-first by design — never depends on
-//  Firebase being configured to run.
+//  Owns Firebase bootstrap. Deliberately tolerant of missing Firebase
+//  configuration so the offline-first app can still launch and keep local
+//  changes pending instead of crashing.
 //
 
 import Foundation
@@ -25,7 +24,7 @@ enum FirebaseService {
     static func configureIfPossible() {
         #if canImport(FirebaseCore)
         guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
-            AppLogger.network.notice("GoogleService-Info.plist not found — running local-only. See README to enable Firestore sync.")
+            AppLogger.network.notice("GoogleService-Info.plist not found — running local-only.")
             return
         }
         if FirebaseApp.app() == nil {
@@ -34,7 +33,7 @@ enum FirebaseService {
         isConfigured = true
         AppLogger.network.notice("Firebase configured.")
         #else
-        AppLogger.network.notice("FirebaseCore package not linked — running local-only. See README to add the Firebase SPM package.")
+        AppLogger.network.notice("FirebaseCore package not linked — running local-only.")
         #endif
     }
 }

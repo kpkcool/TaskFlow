@@ -138,7 +138,7 @@ final class TaskBoardViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Task Board"
+        title = "Task Flow"
         view.backgroundColor = .systemGroupedBackground
 
         setupNavigationBar()
@@ -347,6 +347,50 @@ final class TaskBoardViewController: UIViewController {
         })
         present(alert, animated: true)
     }
+    
+    /// Swipe-to-delete variant: shows confirmation, then either deletes or
+    /// snaps the cell's card back to its resting position on cancel.
+    private func confirmSwipeDelete(_ task: Task, cell: TaskCell?) {
+        let alert = UIAlertController(
+            title: "Delete \"\(task.title)\"?",
+            message: "This cannot be undone.",
+            preferredStyle: .alert
+        )
+
+        alert.addAction(
+            UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                cell?.resetSwipe()
+            }
+        )
+
+        alert.addAction(
+            UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+                self?.viewModel.deleteTask(task)
+            }
+        )
+
+        present(alert, animated: true)
+    }
+    
+    /// Swipe-right: shows a custom bottom sheet with color-coded status buttons.
+    private func showMoveStatusSheet(_ task: Task, cell: TaskCell?) {
+        let sheet = MoveStatusSheetController(task: task)
+
+        sheet.onSelect = { [weak self] status in
+            self?.viewModel.moveTask(
+                task,
+                to: status,
+                targetIndex: nil
+            )
+            cell?.resetSwipe()
+        }
+
+        sheet.onCancel = {
+            cell?.resetSwipe()
+        }
+
+        present(sheet, animated: true)
+    }
 
     // MARK: - Layout
 
@@ -382,10 +426,20 @@ final class TaskBoardViewController: UIViewController {
                 for: indexPath
             ) as! TaskCell
             cell.configure(with: task)
+            cell.onDelete = { [weak self, weak cell] in
+                self?.confirmSwipeDelete(task, cell: cell)
+            }
+            cell.onMoveStatus = { [weak self, weak cell] in
+                self?.showMoveStatusSheet(task, cell: cell)
+            }
             return cell
         }
 
-        dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
+        dataSource.supplementaryViewProvider = { [weak self] (
+            collectionView: UICollectionView,
+            kind: String,
+            indexPath: IndexPath
+        ) -> UICollectionReusableView? in
             guard let self, kind == TaskSectionHeader.elementKind else { return nil }
             let header = collectionView.dequeueReusableSupplementaryView(
                 ofKind: kind,

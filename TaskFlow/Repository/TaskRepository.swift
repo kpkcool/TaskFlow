@@ -25,7 +25,22 @@ protocol TaskRepository: Sendable {
     // Repository" rule holds without exception.
 
     /// High-level sync status (idle/offline/syncing/synced/failed).
+    /// Each caller gets an independent stream that replays the current
+    /// state immediately — safe for multiple simultaneous observers.
     func observeSyncState() -> AsyncStream<SyncState>
+
+    /// Live connectivity, including the debug "simulate offline" override.
+    /// Replays the current value on subscribe.
+    func observeConnectivity() -> AsyncStream<Bool>
+
+    /// Current connectivity without subscribing.
+    var isOnline: Bool { get }
+
+    /// Debug-screen hook: forces the app to behave as if offline.
+    func setSimulatedOffline(_ simulated: Bool)
+
+    /// Whether the debug offline override is currently engaged.
+    var isSimulatingOffline: Bool { get }
 
     /// Number of tasks that still need to be pushed to Firestore.
     func pendingChangeCount() async -> Int

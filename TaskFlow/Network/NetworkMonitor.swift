@@ -16,7 +16,7 @@ final class NetworkMonitor: @unchecked Sendable {
     static let shared = NetworkMonitor()
 
     private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "com.example.com.TaskFlow.NetworkMonitor")
+    private let queue = DispatchQueue(label: "com.kpkcool.TaskFlow.NetworkMonitor")
     private let lock = NSLock()
 
     private var _pathConnected = false

@@ -13,13 +13,16 @@ final class TaskRepositoryImpl: TaskRepository, @unchecked Sendable {
 
     private let localStore: TaskLocalStoreProtocol
     private let syncEngine: SyncEngine
+    private let networkMonitor: NetworkMonitor
 
     init(
         localStore: TaskLocalStoreProtocol,
-        syncEngine: SyncEngine
+        syncEngine: SyncEngine,
+        networkMonitor: NetworkMonitor = .shared
     ) {
         self.localStore = localStore
         self.syncEngine = syncEngine
+        self.networkMonitor = networkMonitor
     }
 
     // MARK: - Observation
@@ -41,7 +44,26 @@ final class TaskRepositoryImpl: TaskRepository, @unchecked Sendable {
     }
 
     func observeSyncState() -> AsyncStream<SyncState> {
-        syncEngine.stateStream
+        // Each call returns an independent multicast stream (replaying the
+        // current state), so the board and the debug screen can both
+        // observe without consuming each other's events.
+        syncEngine.stateStream()
+    }
+
+    func observeConnectivity() -> AsyncStream<Bool> {
+        networkMonitor.stream()
+    }
+
+    var isOnline: Bool {
+        networkMonitor.isConnected
+    }
+
+    var isSimulatingOffline: Bool {
+        networkMonitor.isSimulatingOffline
+    }
+
+    func setSimulatedOffline(_ simulated: Bool) {
+        networkMonitor.setSimulatedOffline(simulated)
     }
 
     func pendingChangeCount() async -> Int {
