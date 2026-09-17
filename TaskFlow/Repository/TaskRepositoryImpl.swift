@@ -181,6 +181,10 @@ final class TaskRepositoryImpl: TaskRepository, @unchecked Sendable {
     func syncPendingChanges() async {
         await syncEngine.syncNow()
     }
+    
+    func triggerSync() {
+        _Concurrency.Task {await syncEngine.syncNow()}
+    }
 
     // MARK: - Helpers
 

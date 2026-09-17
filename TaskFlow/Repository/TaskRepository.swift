@@ -15,7 +15,7 @@ protocol TaskRepository: Sendable {
     func moveTask(_ task: Task, to status: TaskStatus) async throws
     func reorderTask(_ task: Task, newSortOrder: Double) async throws
     func syncPendingChanges() async
-
+    func triggerSync()
     // MARK: Additions beyond the base spec
     //
     // The ViewModel is only given a TaskRepository (see AppCoordinator), yet

@@ -75,6 +75,10 @@ final class MockTaskRepository: TaskRepository, @unchecked Sendable {
     func syncPendingChanges() async {
         lastAction = "sync"
     }
+    
+    func triggerSync() {
+        lastAction = "triggerSync"
+    }
 
     func pendingChangeCount() async -> Int {
         currentTasks.filter(\.syncStatus.isPending).count

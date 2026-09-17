@@ -1,82 +1,47 @@
-# TaskFlow — Offline-First Task Board
+# TaskFlow
 
-A production-quality iOS task management board built with **Swift + UIKit**, following **MVVM-C + Repository Pattern** with an **offline-first** design.
+Offline-first iOS task management board built with **Swift + UIKit**, using **MVVM-C + Repository Pattern**.
 
 ## Features
 
-- **Three-column Kanban board** — To Do, In Progress, Done
-- **CRUD** — Create, edit, delete tasks with validation
-- **Drag & drop** — Reorder within a section or move between sections
-- **Context menu** — Long-press for Edit / Move to… / Delete
-- **Swipe actions** — Swipe left to delete, swipe right to move status with a custom status picker
-- **Offline-first** — Every mutation saves to Core Data immediately; UI never waits on the network
-- **Automatic sync** — Pending changes upload to Firebase Firestore when connectivity returns
-- **Conflict resolution** — Last-updated-wins (compare `updatedAt` timestamps)
-- **Sync status indicators** — Per-task badges (✓ synced / ⏳ pending / ⚠ failed) and a nav-bar icon
-- **Offline banner** — "You're offline. Changes will sync when you're back online."
-- **Pull-to-refresh** — Manual sync trigger
-- **Developer/Debug screen** — Network state, pending count, last sync time, Simulate Offline toggle, Sync Now, Clear Local Data
-- **Core Data persistence** — Tasks survive app quit and relaunch
-- **Unit tests** — Repository, SyncEngine, ViewModel, and Core Data persistence coverage
+- Three-column Kanban board: **To Do, In Progress, Done**
+- Create, edit, delete, reorder, and move tasks
+- Drag & drop and swipe actions
+- Offline-first local persistence with **Core Data**
+- Automatic sync with **Firebase Firestore**
+- Last-updated-wins conflict resolution
+- Sync status and offline indicators
+- Pull-to-refresh and Debug screen
+- Unit tests for repository, sync, view model, and Core Data
 
 ## Architecture
 
-```
+```text
 UIKit ViewControllers
         ↓
-    ViewModels (async/await + @Published)
+ViewModels
         ↓
-    TaskRepository (protocol — only dependency VMs know)
-      ↙         ↘
-Core Data      Firestore
- (LOCAL)       (REMOTE)
-      ↘         ↙
-     SyncEngine
+TaskRepository
+      ↙   ↘
+ Core Data  Firestore
+      ↘   ↙
+    SyncEngine
 ```
 
-**Key rules:**
-- Core Data is the **local source of truth**
-- Firebase is never accessed from ViewControllers or ViewModels
-- All reads/writes go through the Repository
-- **User action → Core Data first → UI update → Firebase sync** (never the reverse)
-
-### Folder Structure
-
-```
-TaskFlow/
-├── App/                    # Coordinator protocol, AppCoordinator
-├── Core/
-│   ├── Constants/          # AppConstants
-│   ├── Errors/             # TaskRepositoryError
-│   ├── Extensions/         # UIView+Layout, Date+TaskFlow
-│   ├── Utilities/          # SortOrderCalculator, AppLogger
-│   └── AppDependencies.swift  # Composition root / DI container
-├── Models/                 # Task, TaskStatus, SyncStatus, SyncState, TaskSection
-├── Persistence/            # CoreDataStack, TaskEntity (hand-written), CoreDataTaskStore
-├── Network/                # NetworkMonitor, FirebaseService, FirestoreTaskService
-├── Repository/             # TaskRepository protocol, TaskRepositoryImpl
-├── Sync/                   # SyncEngine, SyncOperation, SyncQueue
-├── Features/
-│   ├── TaskBoard/          # Board VC, ViewModel, Coordinator, TaskCell, SectionHeader
-│   ├── TaskEditor/         # Editor VC, ViewModel, Coordinator
-│   └── Debug/              # DebugViewController
-├── AppDelegate.swift
-├── SceneDelegate.swift
-└── Resources/
-    ├── Assets.xcassets
-    └── LaunchScreen.storyboard
-```
+**Rules**
+- Core Data is the local source of truth.
+- ViewControllers/ViewModels never access Firebase directly.
+- All reads and writes go through the Repository.
+- User action → Core Data → UI update → Firebase sync.
 
 ## Requirements
 
-- **Xcode 26.3+** (Swift 5)
-- **iOS 26.2+** deployment target
-- Firebase Swift Package dependencies are already added to the Xcode project
-- `GoogleService-Info.plist` is included in the app target for Firestore setup
+- **Xcode 26.3+**
+- **iOS 26.2+**
+- Firebase Swift Package dependencies
+- `GoogleService-Info.plist` included in the app target
 
 ## Getting Started
-
-### 1. Clone and open
 
 ```bash
 git clone <repo-url>
@@ -84,25 +49,23 @@ cd TaskFlow
 open TaskFlow.xcodeproj
 ```
 
-### 2. Build and run
+Select an iOS Simulator and press **⌘R**.
 
-Select an available simulator, such as **iPhone 17**, and press **⌘R**.
+The app works locally without Firebase. When Firebase is available, pending changes sync automatically.
 
-The app is offline-first: task creation, editing, deleting, dragging, reordering, and Core Data persistence work even when the network or Firebase is unavailable. When Firebase config succeeds, pending changes sync to Firestore automatically.
+## Firebase Setup
 
-### 3. Firebase Firestore
+The project already contains the Firebase dependencies and `GoogleService-Info.plist`.
 
-Firebase dependencies and `GoogleService-Info.plist` are present. To use a different Firebase project:
+To use another Firebase project:
 
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Create a project (or use an existing one)
-3. Add an iOS app with bundle ID: `com.kpkcool.TaskFlow`
-4. Download the generated `GoogleService-Info.plist`
-5. Replace the existing `TaskFlow/GoogleService-Info.plist` and make sure it is included in the `TaskFlow` target
+1. Create/add an iOS app in Firebase.
+2. Use bundle ID: `com.kpkcool.TaskFlow`
+3. Download `GoogleService-Info.plist`.
+4. Replace the existing file and ensure it is included in the `TaskFlow` target.
+5. Create a Firestore database with a `tasks` collection.
 
-Create a Firestore database in Firebase Console. For development, "Start in test mode" is fine; the app writes to the `tasks` collection.
-
-### 4. Build From Terminal
+## Build & Test
 
 ```bash
 xcodebuild -project TaskFlow.xcodeproj \
@@ -111,7 +74,7 @@ xcodebuild -project TaskFlow.xcodeproj \
   build
 ```
 
-### 5. Run tests
+Run tests:
 
 ```bash
 xcodebuild -project TaskFlow.xcodeproj \
@@ -121,127 +84,73 @@ xcodebuild -project TaskFlow.xcodeproj \
   test
 ```
 
-Or in Xcode: **⌘U** (Product → Test).
+Or use **⌘U** in Xcode.
 
-## What Is Working
+## Data & Sync
 
-- App launches through `AppDelegate` and configures Firebase before Firestore is touched.
-- Core Data is the local source of truth for all visible tasks.
-- Create task works with title validation and automatic sort ordering.
-- Edit task works and marks synced tasks for update.
-- Delete task works from context menu and swipe action.
-- Drag and drop works for reordering within a column and moving between columns.
-- Swipe-left delete opens a confirmation alert and resets the card if cancelled.
-- Swipe-right status move opens the custom centered `MoveStatusSheetController`.
-- Context menus support edit, move, and delete.
-- Pull-to-refresh triggers a sync attempt.
-- Sync status is shown at task level and in the navigation bar.
-- Offline state is surfaced with an app banner.
-- Debug screen can simulate offline mode, force sync, show pending count, show last sync, and clear local data.
-- Firestore sync path is wired through `FirestoreTaskService` when Firebase config succeeds.
-- Local-only fallback is safe: if Firebase is unavailable, the app keeps changes locally as pending instead of crashing.
-- Retry/backoff is handled by `SyncEngine` and `SyncQueue`.
-- Unit coverage exists for repository writes, sync behavior, view model grouping/state, and Core Data persistence.
+Tasks are stored locally in Core Data and synced to Firestore.
 
-## Offline-First Write Strategy
-
-Every user mutation follows this exact sequence:
-
-```
+```text
 User Action
     ↓
 ViewModel
     ↓
 Repository
     ↓
-Save to Core Data immediately (syncStatus = pendingCreate/pendingUpdate/pendingDelete)
+Core Data
     ↓
-Update UI immediately (from Core Data observation)
+UI Update
     ↓
-Check Network
-    ↓
-Online?   →  YES → Firebase upload → mark .synced
-          →  NO  → Keep pending (retry on reconnect / app-foreground / manual sync)
+Firebase Sync
 ```
 
-The user **never** waits for Firebase before seeing their change.
+Failed operations remain pending and are retried with exponential backoff. Sync is also retried when connectivity returns, the app becomes active, or the user manually triggers sync.
 
-## Conflict Resolution
+### Conflict Resolution
 
-**Strategy: Last Updated Wins**
+**Last Updated Wins** using `updatedAt`:
 
-When the SyncEngine pulls remote changes and finds a task that also has local pending edits:
+- Local newer → keep local and upload.
+- Remote newer → update local data.
+- Synced local task missing remotely → remove locally.
+- Pending local task missing remotely → keep locally.
 
-| Condition | Action |
-|-----------|--------|
-| `local.updatedAt > remote.updatedAt` | Keep local, re-upload to Firebase |
-| `remote.updatedAt > local.updatedAt` | Overwrite Core Data with remote copy |
-| Task is `.synced` locally but missing remotely | Treat as remote delete — remove locally |
-| Task is pending locally but missing remotely | Keep local — it hasn't been uploaded yet |
+### Reordering
 
-This is a deliberately simple, deterministic strategy suitable for a single-user or small-team board.
+Tasks use gap-based `sortOrder` values (step `1000`). Sections are renormalized when gaps become too small.
 
-## Retry Strategy
+## Project Structure
 
-- Failed sync operations are marked `.failed` (data is **never** lost)
-- Automatic retry with exponential backoff (base 5s, max 5 attempts)
-- Retry also triggers on:
-  - Network connectivity restored
-  - App becomes active (foreground)
-  - User taps the sync icon or pulls to refresh
-  - User taps "Sync Now" in the Debug screen
-
-## Data Model
-
-```swift
-struct Task {
-    let id: UUID
-    var title: String
-    var taskDescription: String
-    var status: TaskStatus        // .todo | .inProgress | .done
-    let createdAt: Date
-    var updatedAt: Date
-    var sortOrder: Double
-    var syncStatus: SyncStatus    // .synced | .pendingCreate | .pendingUpdate | .pendingDelete | .failed
-}
+```text
+TaskFlow/
+├── App/
+├── Core/
+├── Models/
+├── Persistence/
+├── Network/
+├── Repository/
+├── Sync/
+├── Features/
+│   ├── TaskBoard/
+│   ├── TaskEditor/
+│   └── Debug/
+├── AppDelegate.swift
+├── SceneDelegate.swift
+└── Resources/
 ```
 
-Core Data entity: `TaskEntity` (hand-written, `codeGenerationType = none`)
+## Testing
 
-Firestore collection: `tasks/{taskId}` — stores `id`, `title`, `description`, `status`, `createdAt`, `updatedAt`, `sortOrder`.
+Unit tests cover:
 
-## Reordering Strategy
+- Repository CRUD, validation, move and reorder
+- Sync and retry behavior
+- Conflict resolution
+- ViewModel state and grouping
+- Core Data persistence
 
-Uses a **gap-based sortOrder** (step = 1000) so reordering a single task only writes that one row:
+Tests use mock services and do not require a real Firebase backend.
 
-```
-Task A = 1000
-Task B = 2000
-Task C = 3000
+## Notes
 
-Move C between A and B → C.sortOrder = 1500
-```
-
-When gaps get too small (`< 0.001`), the entire section is renormalized with clean spacing.
-
-## Unit Tests
-
-| Suite | Tests | Covers |
-|-------|-------|--------|
-| `TaskRepositoryTests` | 12 | Create, update, delete, move, reorder, validation, offline session |
-| `SyncEngineTests` | 9 | Pending sync, failure handling, retry, conflict resolution (both directions), remote delete |
-| `TaskBoardViewModelTests` | 4 | Section grouping/sorting, sync state, error propagation, delete delegation |
-| `CoreDataPersistenceTests` | 2 | Tasks survive quit+relaunch, pending changes survive for later sync |
-
-All tests use mock protocols (`MockTaskStore`, `MockFirestoreTaskService`, `MockTaskRepository`) — no real Firebase or persistent Core Data involved.
-
-## Current Notes
-
-- The app target bundle ID is `com.kpkcool.TaskFlow`.
-- Firestore collection name is `tasks` in `AppConstants.firestoreTasksCollection`.
-- UI tests are still the default Xcode template and should be expanded before relying on them for release confidence.
-- Firestore security rules should be reviewed before production use.
-
-## Bundle ID
-
-The current app bundle ID is `com.kpkcool.TaskFlow`. If you change it, make sure the Firebase Console iOS app uses the same bundle ID, or `GoogleService-Info.plist` will not match the app.
+- Firestore collection: `tasks`

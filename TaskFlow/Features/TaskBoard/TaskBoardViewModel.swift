@@ -22,6 +22,7 @@ final class TaskBoardViewModel: ObservableObject {
     private let repository: TaskRepository
     private var observeTasksTask: _Concurrency.Task<Void, Never>?
     private var observeSyncTask: _Concurrency.Task<Void, Never>?
+    private var observeConnectivityTask: _Concurrency.Task<Void, Never>?
 
     init(repository: TaskRepository) {
         self.repository = repository
@@ -42,8 +43,28 @@ final class TaskBoardViewModel: ObservableObject {
                 guard let self else { return }
                 for await state in repository.observeSyncState() {
                     self.syncState = state
-                    if case .failed(let message) = state {
-                        self.errorMessage = message
+                    // Deliberately NOT surfacing sync failures as a modal
+                    // alert: the offline banner + per-task badge already
+                    // communicate it, and a failed sync is expected/normal
+                    // when offline. Alerts are reserved for errors caused
+                    // directly by a user action (see the intents below).
+                }
+            }
+        }
+        if observeConnectivityTask == nil {
+            // Observing connectivity directly (in addition to sync state)
+            // means the board flips to the offline banner the instant the
+            // Simulate Offline toggle changes, without waiting for a sync
+            // pass to report it.
+            observeConnectivityTask = _Concurrency.Task { [weak self] in
+                guard let self else { return }
+                for await isOnline in repository.observeConnectivity() {
+                    if !isOnline {
+                        self.syncState = .offline
+                    } else if case .offline = self.syncState {
+                        // Coming back online: clear the offline banner. A
+                        // sync pass will replace this with its real state.
+                        self.syncState = .idle
                     }
                 }
             }
@@ -55,6 +76,8 @@ final class TaskBoardViewModel: ObservableObject {
         observeTasksTask = nil
         observeSyncTask?.cancel()
         observeSyncTask = nil
+        observeConnectivityTask?.cancel()
+        observeConnectivityTask = nil
     }
 
     private func apply(_ tasks: [Task]) {

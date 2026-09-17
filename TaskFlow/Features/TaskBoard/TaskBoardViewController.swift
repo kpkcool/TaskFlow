@@ -34,7 +34,7 @@ final class TaskBoardViewController: UIViewController {
     private let refreshControl = UIRefreshControl()
 
     private lazy var collectionView: UICollectionView = {
-        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: Self.makeLayout())
+        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
         collectionView.backgroundColor = .systemGroupedBackground
         // Without this, a UIScrollView whose content doesn't fill its
         // bounds (e.g. the empty-board state) won't scroll/bounce at all —
@@ -47,6 +47,11 @@ final class TaskBoardViewController: UIViewController {
         collectionView.dragInteractionEnabled = true
         collectionView.refreshControl = refreshControl
         collectionView.register(TaskCell.self, forCellWithReuseIdentifier: TaskCell.reuseIdentifier)
+        collectionView.register(
+            EmptySectionPlaceholder.self,
+            forSupplementaryViewOfKind: EmptySectionPlaceholder.elementKind,
+            withReuseIdentifier: EmptySectionPlaceholder.reuseIdentifier
+        )
         collectionView.register(
             TaskSectionHeader.self,
             forSupplementaryViewOfKind: TaskSectionHeader.elementKind,
@@ -76,8 +81,8 @@ final class TaskBoardViewController: UIViewController {
         label.text = "No tasks yet.\nTap + to add your first task."
         label.numberOfLines = 0
         label.textAlignment = .center
-        label.textColor = .secondaryLabel
-        label.font = .preferredFont(forTextStyle: .body)
+        label.textColor = .quaternaryLabel
+        label.font = .preferredFont(forTextStyle: .subheadline)
         label.adjustsFontForContentSizeCategory = true
         label.isHidden = true
         return label
@@ -138,7 +143,7 @@ final class TaskBoardViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Task Flow"
+        title = "Task Board"
         view.backgroundColor = .systemGroupedBackground
 
         setupNavigationBar()
@@ -168,15 +173,6 @@ final class TaskBoardViewController: UIViewController {
         view.addSubview(stack)
         stack.pinToSafeArea(of: self)
 
-        view.addSubview(emptyStateLabel)
-        NSLayoutConstraint.activate([
-            emptyStateLabel.centerXAnchor.constraint(equalTo: collectionView.centerXAnchor),
-            emptyStateLabel.centerYAnchor.constraint(equalTo: collectionView.centerYAnchor),
-            emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 32),
-            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -32)
-        ])
-        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
-
         view.addSubview(addButton)
         addButton.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -184,6 +180,17 @@ final class TaskBoardViewController: UIViewController {
             addButton.heightAnchor.constraint(equalToConstant: 56),
             addButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
             addButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20)
+        ])
+
+        // Position the empty-state label just above the + button so it
+        // doesn't overlap with the dashed section placeholders.
+        view.addSubview(emptyStateLabel)
+        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            emptyStateLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyStateLabel.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -16),
+            emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 32),
+            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -32)
         ])
     }
 
@@ -214,9 +221,6 @@ final class TaskBoardViewController: UIViewController {
     }
 
     private func applySnapshot(for sections: [TaskSection]) {
-        // While a drag is active, applying ANY snapshot (even unanimated)
-        // tears down the dragged cell and rebuilds it — visible as a
-        // flash/disappear. Queue it and apply once the drag ends.
         if isDragging {
             pendingDragSections = sections
             return
@@ -227,18 +231,33 @@ final class TaskBoardViewController: UIViewController {
         for section in sections {
             snapshot.appendItems(section.tasks, toSection: section.status)
         }
-        dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
+        // No animation — keeps reordering instant and prevents any jitter.
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             self?.refreshVisibleSectionHeaders(with: sections)
         }
+        // Invalidate layout so the per-section provider re-evaluates whether
+        // each section needs the empty placeholder footer or not.
+        collectionView.collectionViewLayout.invalidateLayout()
         refreshControl.endRefreshing()
         emptyStateLabel.isHidden = !sections.allSatisfy { $0.tasks.isEmpty }
     }
 
     /// Flushes any snapshot that was deferred during a drag session.
+    /// Applied WITHOUT animation so the post-drop update is instant — no
+    /// jittery layout animation fighting with the drag settling.
     private func flushPendingSnapshot() {
         guard let sections = pendingDragSections else { return }
         pendingDragSections = nil
-        applySnapshot(for: sections)
+
+        var snapshot = NSDiffableDataSourceSnapshot<TaskStatus, Task>()
+        snapshot.appendSections(sections.map(\.status))
+        for section in sections {
+            snapshot.appendItems(section.tasks, toSection: section.status)
+        }
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            self?.refreshVisibleSectionHeaders(with: sections)
+        }
+        emptyStateLabel.isHidden = !sections.allSatisfy { $0.tasks.isEmpty }
     }
 
     private func refreshVisibleSectionHeaders(with sections: [TaskSection]) {
@@ -251,6 +270,17 @@ final class TaskBoardViewController: UIViewController {
             else { continue }
             let section = sections[indexPath.section]
             header.configure(status: section.status, count: section.tasks.count)
+        }
+        // Update placeholder visibility to match current task counts.
+        for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: EmptySectionPlaceholder.elementKind) {
+            guard let placeholder = collectionView.supplementaryView(
+                forElementKind: EmptySectionPlaceholder.elementKind,
+                at: indexPath
+            ) as? EmptySectionPlaceholder else { continue }
+            let isEmpty = sections.indices.contains(indexPath.section)
+                ? sections[indexPath.section].tasks.isEmpty
+                : true
+            placeholder.configure(isEmpty: isEmpty)
         }
     }
 
@@ -347,7 +377,7 @@ final class TaskBoardViewController: UIViewController {
         })
         present(alert, animated: true)
     }
-    
+
     /// Swipe-to-delete variant: shows confirmation, then either deletes or
     /// snaps the cell's card back to its resting position on cancel.
     private func confirmSwipeDelete(_ task: Task, cell: TaskCell?) {
@@ -356,71 +386,76 @@ final class TaskBoardViewController: UIViewController {
             message: "This cannot be undone.",
             preferredStyle: .alert
         )
-
-        alert.addAction(
-            UIAlertAction(title: "Cancel", style: .cancel) { _ in
-                cell?.resetSwipe()
-            }
-        )
-
-        alert.addAction(
-            UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
-                self?.viewModel.deleteTask(task)
-            }
-        )
-
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+            cell?.resetSwipe()
+        })
+        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+            self?.viewModel.deleteTask(task)
+        })
         present(alert, animated: true)
     }
-    
+
     /// Swipe-right: shows a custom bottom sheet with color-coded status buttons.
     private func showMoveStatusSheet(_ task: Task, cell: TaskCell?) {
         let sheet = MoveStatusSheetController(task: task)
-
         sheet.onSelect = { [weak self] status in
-            self?.viewModel.moveTask(
-                task,
-                to: status,
-                targetIndex: nil
-            )
+            self?.viewModel.moveTask(task, to: status, targetIndex: nil)
             cell?.resetSwipe()
         }
-
         sheet.onCancel = {
             cell?.resetSwipe()
         }
-
         present(sheet, animated: true)
     }
 
     // MARK: - Layout
 
-    private static func makeLayout() -> UICollectionViewLayout {
-        let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .estimated(84))
-        let item = NSCollectionLayoutItem(layoutSize: itemSize)
+    /// Per-section layout: empty sections get a 60pt placeholder footer;
+    /// non-empty sections get no footer at all (zero wasted space).
+    private func makeLayout() -> UICollectionViewLayout {
+        UICollectionViewCompositionalLayout { [weak self] sectionIndex, environment in
+            let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .estimated(84))
+            let item = NSCollectionLayoutItem(layoutSize: itemSize)
 
-        let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .estimated(84))
-        let group = NSCollectionLayoutGroup.vertical(layoutSize: groupSize, subitems: [item])
+            let groupSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .estimated(84))
+            let group = NSCollectionLayoutGroup.vertical(layoutSize: groupSize, subitems: [item])
 
-        let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 12, bottom: 20, trailing: 12)
-        section.interGroupSpacing = 8
+            let section = NSCollectionLayoutSection(group: group)
+            section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12)
+            section.interGroupSpacing = 8
 
-        let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .estimated(36))
-        let header = NSCollectionLayoutBoundarySupplementaryItem(
-            layoutSize: headerSize,
-            elementKind: TaskSectionHeader.elementKind,
-            alignment: .top
-        )
-        header.pinToVisibleBounds = true
-        section.boundarySupplementaryItems = [header]
+            let headerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .estimated(36))
+            let header = NSCollectionLayoutBoundarySupplementaryItem(
+                layoutSize: headerSize,
+                elementKind: TaskSectionHeader.elementKind,
+                alignment: .top
+            )
+            header.pinToVisibleBounds = true
 
-        return UICollectionViewCompositionalLayout(section: section)
+            let isEmpty = self?.viewModel.sections.indices.contains(sectionIndex) == true
+                ? self!.viewModel.sections[sectionIndex].tasks.isEmpty
+                : true
+
+            if isEmpty {
+                let footerSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1.0), heightDimension: .absolute(60))
+                let footer = NSCollectionLayoutBoundarySupplementaryItem(
+                    layoutSize: footerSize,
+                    elementKind: EmptySectionPlaceholder.elementKind,
+                    alignment: .bottom
+                )
+                section.boundarySupplementaryItems = [header, footer]
+            } else {
+                section.boundarySupplementaryItems = [header]
+            }
+
+            return section
+        }
     }
 
     private func makeDataSource() -> UICollectionViewDiffableDataSource<TaskStatus, Task> {
         let dataSource = UICollectionViewDiffableDataSource<TaskStatus, Task>(
             collectionView: collectionView
-        ) { collectionView, indexPath, task in
+        ) { [weak self] collectionView, indexPath, task in
             let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: TaskCell.reuseIdentifier,
                 for: indexPath
@@ -435,21 +470,35 @@ final class TaskBoardViewController: UIViewController {
             return cell
         }
 
-        dataSource.supplementaryViewProvider = { [weak self] (
-            collectionView: UICollectionView,
-            kind: String,
-            indexPath: IndexPath
-        ) -> UICollectionReusableView? in
-            guard let self, kind == TaskSectionHeader.elementKind else { return nil }
-            let header = collectionView.dequeueReusableSupplementaryView(
-                ofKind: kind,
-                withReuseIdentifier: TaskSectionHeader.reuseIdentifier,
-                for: indexPath
-            ) as! TaskSectionHeader
-            guard self.viewModel.sections.indices.contains(indexPath.section) else { return header }
-            let section = self.viewModel.sections[indexPath.section]
-            header.configure(status: section.status, count: section.tasks.count)
-            return header
+        dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
+            guard let self else { return nil }
+
+            if kind == TaskSectionHeader.elementKind {
+                let header = collectionView.dequeueReusableSupplementaryView(
+                    ofKind: kind,
+                    withReuseIdentifier: TaskSectionHeader.reuseIdentifier,
+                    for: indexPath
+                ) as! TaskSectionHeader
+                guard self.viewModel.sections.indices.contains(indexPath.section) else { return header }
+                let section = self.viewModel.sections[indexPath.section]
+                header.configure(status: section.status, count: section.tasks.count)
+                return header
+            }
+
+            if kind == EmptySectionPlaceholder.elementKind {
+                let placeholder = collectionView.dequeueReusableSupplementaryView(
+                    ofKind: kind,
+                    withReuseIdentifier: EmptySectionPlaceholder.reuseIdentifier,
+                    for: indexPath
+                ) as! EmptySectionPlaceholder
+                let isEmpty = self.viewModel.sections.indices.contains(indexPath.section)
+                    ? self.viewModel.sections[indexPath.section].tasks.isEmpty
+                    : true
+                placeholder.configure(isEmpty: isEmpty)
+                return placeholder
+            }
+
+            return nil
         }
 
         return dataSource
@@ -464,41 +513,6 @@ extension TaskBoardViewController: UICollectionViewDelegate {
         collectionView.deselectItem(at: indexPath, animated: true)
         guard let task = viewModel.task(at: indexPath) else { return }
         onSelectTask?(task)
-    }
-
-    func collectionView(
-        _ collectionView: UICollectionView,
-        contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
-        point: CGPoint
-    ) -> UIContextMenuConfiguration? {
-        guard let indexPath = indexPaths.first, let task = viewModel.task(at: indexPath) else { return nil }
-
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            guard let self else { return nil }
-
-            let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
-                self.onSelectTask?(task)
-            }
-
-            let moveActions = TaskStatus.allCases
-                .filter { $0 != task.status }
-                .map { status in
-                    UIAction(title: "Move to \(status.displayName)") { _ in
-                        self.viewModel.moveTask(task, to: status, targetIndex: nil)
-                    }
-                }
-            let moveMenu = UIMenu(
-                title: "Move to...",
-                image: UIImage(systemName: "arrow.left.arrow.right"),
-                children: moveActions
-            )
-
-            let delete = UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in
-                self.confirmDelete(task)
-            }
-
-            return UIMenu(children: [edit, moveMenu, delete])
-        }
     }
 }
 
@@ -539,71 +553,84 @@ extension TaskBoardViewController: UICollectionViewDropDelegate {
         dropSessionDidUpdate session: UIDropSession,
         withDestinationIndexPath destinationIndexPath: IndexPath?
     ) -> UICollectionViewDropProposal {
-        UICollectionViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
+        UICollectionViewDropProposal(operation: .move, intent: .unspecified)
     }
 
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
         guard let dragItem = coordinator.items.first,
               let task = dragItem.dragItem.localObject as? Task else { return }
 
-        let destinationIndexPath: IndexPath
-        if let requested = coordinator.destinationIndexPath,
-           viewModel.sections.indices.contains(requested.section) {
-            destinationIndexPath = requested
-        } else {
-            // UIKit gives us `nil` when the user drops over an empty section
-            // (no cells = no candidate indexPath). Hit-test against the
-            // section header frames instead so "To Do → empty In Progress"
-            // actually lands in the right section instead of silently
-            // falling back to section 0.
-            let location = coordinator.session.location(in: collectionView)
-            let section = sectionIndex(forDropPoint: location) ?? 0
-            let count = viewModel.sections.indices.contains(section) ? viewModel.sections[section].tasks.count : 0
-            destinationIndexPath = IndexPath(item: count, section: section)
-        }
+        let location = coordinator.session.location(in: collectionView)
+        let section = sectionForDropPoint(location)
+        let destinationStatus = viewModel.sections[section].status
 
-        let destinationStatus = viewModel.sections[destinationIndexPath.section].status
-        viewModel.moveTask(task, to: destinationStatus, targetIndex: destinationIndexPath.item)
+        // Calculate the insertion index within the target section by
+        // comparing the drop Y against visible cell midpoints.
+        let targetIndex = insertionIndex(forDropPoint: location, inSection: section, excludingTaskID: task.id)
 
-        // Tell the drop coordinator where the item landed — UIKit uses
-        // this for its drop animation.
-        coordinator.drop(dragItem.dragItem, toItemAt: destinationIndexPath)
+        viewModel.moveTask(task, to: destinationStatus, targetIndex: targetIndex)
 
-        // Give UIKit's drop animation ~0.2s to settle before we flush
-        // the deferred snapshot. This keeps the cell visible throughout
-        // the entire drag-lift → move → drop arc with zero flicker.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.isDragging = false
-            self?.flushPendingSnapshot()
-        }
+        isDragging = false
+        flushPendingSnapshot()
     }
 
-    /// Finds which section the drop point is in by checking each section's
-    /// vertical range (header top → last item bottom, or next header top).
-    /// Works even when the section is empty (no items, just a header).
-    private func sectionIndex(forDropPoint point: CGPoint) -> Int? {
+    /// Simple, reliable section detection: divide the collection view into
+    /// vertical bands based on the fraction of total content each section
+    /// occupies. For 3 sections this just splits the visible area into
+    /// thirds (roughly), biased by where the headers actually are.
+    private func sectionForDropPoint(_ point: CGPoint) -> Int {
         let sectionCount = viewModel.sections.count
-        guard sectionCount > 0 else { return nil }
+        guard sectionCount > 0 else { return 0 }
 
-        // Collect each section's header top-Y in layout coordinates.
-        var sectionTops: [(section: Int, topY: CGFloat)] = []
+        // Collect the Y-origin of each section's header.
+        var tops: [(section: Int, y: CGFloat)] = []
         for section in 0..<sectionCount {
-            let headerIndexPath = IndexPath(item: 0, section: section)
-            if let attrs = collectionView.layoutAttributesForSupplementaryElement(
-                ofKind: TaskSectionHeader.elementKind,
-                at: headerIndexPath
+            // Try visible subview first (most accurate).
+            let ip = IndexPath(item: 0, section: section)
+            if let header = collectionView.supplementaryView(forElementKind: TaskSectionHeader.elementKind, at: ip) {
+                tops.append((section, header.frame.minY))
+            } else if let attrs = collectionView.layoutAttributesForSupplementaryElement(
+                ofKind: TaskSectionHeader.elementKind, at: ip
             ) {
-                sectionTops.append((section, attrs.frame.minY))
+                tops.append((section, attrs.frame.minY))
             }
         }
 
-        // Walk from bottom to top: the first section whose header is above
-        // the drop point is the one we're in.
-        for entry in sectionTops.reversed() {
-            if point.y >= entry.topY {
+        guard !tops.isEmpty else { return 0 }
+        tops.sort { $0.y < $1.y }
+
+        // Walk bottom-to-top: first header that's above the drop point.
+        for entry in tops.reversed() {
+            if point.y >= entry.y {
                 return entry.section
             }
         }
-        return sectionTops.first?.section
+        return tops.first?.section ?? 0
+    }
+
+    /// Determines where within a section the task should be inserted by
+    /// comparing the drop Y against the midpoints of existing cells.
+    private func insertionIndex(forDropPoint point: CGPoint, inSection section: Int, excludingTaskID: UUID) -> Int {
+        let tasks = viewModel.sections[section].tasks.filter { $0.id != excludingTaskID }
+        guard !tasks.isEmpty else { return 0 }
+
+        // Walk the visible cells in this section and find where the drop
+        // point sits relative to their vertical midpoints.
+        for (index, task) in tasks.enumerated() {
+            // Find the cell for this task via its indexPath in the snapshot.
+            let snapshot = dataSource.snapshot()
+            guard let itemIndex = snapshot.indexOfItem(task) else { continue }
+            let sectionItems = snapshot.itemIdentifiers(inSection: viewModel.sections[section].status)
+            guard let localIndex = sectionItems.firstIndex(of: task) else { continue }
+            let indexPath = IndexPath(item: localIndex, section: section)
+
+            if let attrs = collectionView.layoutAttributesForItem(at: indexPath) {
+                if point.y < attrs.frame.midY {
+                    return index
+                }
+            }
+        }
+        // Below all cells — append at end.
+        return tasks.count
     }
 }
