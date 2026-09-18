@@ -6,13 +6,16 @@ Offline-first iOS task management board built with **Swift + UIKit**, using **MV
 
 - Three-column Kanban board: **To Do, In Progress, Done**
 - Create, edit, delete, reorder, and move tasks
-- Drag & drop and swipe actions
-- Offline-first local persistence with **Core Data**
-- Automatic sync with **Firebase Firestore**
+- Drag & drop task reordering
+- Swipe left to delete and swipe right to change task status
+- Offline-first local persistence using **Core Data**
+- Automatic synchronization with **Firebase Firestore**
 - Last-updated-wins conflict resolution
-- Sync status and offline indicators
-- Pull-to-refresh and Debug screen
-- Unit tests for repository, sync, view model, and Core Data
+- Sync status and offline connectivity indicators
+- Pull-to-refresh
+- Developer/Debug screen for testing connectivity and sync scenarios
+- Light and Dark Mode support
+- Unit tests for repository, sync, ViewModel, and Core Data
 
 ## Architecture
 
