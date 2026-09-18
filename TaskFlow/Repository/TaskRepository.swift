@@ -16,14 +16,7 @@ protocol TaskRepository: Sendable {
     func reorderTask(_ task: Task, newSortOrder: Double) async throws
     func syncPendingChanges() async
     func triggerSync()
-    // MARK: Additions beyond the base spec
-    //
-    // The ViewModel is only given a TaskRepository (see AppCoordinator), yet
-    // it also needs to render sync status and drive the debug screen. Rather
-    // than reaching around the Repository to touch NetworkMonitor/SyncEngine
-    // directly, both are surfaced here so the "ViewModel only knows about
-    // Repository" rule holds without exception.
-
+    
     /// High-level sync status (idle/offline/syncing/synced/failed).
     /// Each caller gets an independent stream that replays the current
     /// state immediately — safe for multiple simultaneous observers.

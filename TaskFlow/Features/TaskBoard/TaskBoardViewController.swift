@@ -145,7 +145,7 @@ final class TaskBoardViewController: UIViewController {
 
     deinit {
         let viewModel = viewModel
-        Task { @MainActor in
+        _Concurrency.Task { @MainActor in
             viewModel.stop()
         }
     }
@@ -439,7 +439,7 @@ final class TaskBoardViewController: UIViewController {
     }
 
     @objc private func pulledToRefresh() {
-        Task { [weak self] in
+        _Concurrency.Task { [weak self] in
             await self?.viewModel.refreshAndWait()
             self?.refreshControl.endRefreshing()
         }

@@ -10,9 +10,13 @@ import Foundation
 @testable import TaskFlow
 
 final class MockTaskRepository: TaskRepository, @unchecked Sendable {
-
     private(set) var lastAction: String?
     private(set) var currentTasks: [Task] = []
+    private var simulatedOffline = false
+    private var connectivityContinuation: AsyncStream<Bool>.Continuation?
+
+    var isOnline: Bool { !simulatedOffline }
+    var isSimulatingOffline: Bool { simulatedOffline }
 
     var createTaskHandler: ((String, String) async throws -> Task)?
     var updateTaskHandler: ((Task) async throws -> Void)?
@@ -32,8 +36,19 @@ final class MockTaskRepository: TaskRepository, @unchecked Sendable {
         self?.syncContinuation = continuation
     }
 
+    private lazy var connectivityStream: AsyncStream<Bool> = AsyncStream { [weak self] continuation in
+        self?.connectivityContinuation = continuation
+        if let self { continuation.yield(self.isOnline) }
+    }
+
     func observeTasks() -> AsyncStream<[Task]> { tasksStream }
     func observeSyncState() -> AsyncStream<SyncState> { syncStream }
+    func observeConnectivity() -> AsyncStream<Bool> { connectivityStream }
+
+    func setSimulatedOffline(_ simulated: Bool) {
+        simulatedOffline = simulated
+        connectivityContinuation?.yield(isOnline)
+    }
 
     func emitTasks(_ tasks: [Task]) {
         currentTasks = tasks

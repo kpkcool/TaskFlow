@@ -137,24 +137,49 @@ final class SyncEngineTests: XCTestCase {
     }
 
     func testConflictRemoteNewerOverwritesLocal() async throws {
-        let older = Date(timeIntervalSinceNow: -100)
-        let newer = Date()
+        let older = Date(timeIntervalSince1970: 1_000)
+        let newer = Date(timeIntervalSince1970: 2_000)
 
-        let local = Task(title: "Local edit (stale)", taskDescription: "", status: .todo, createdAt: older, updatedAt: older, sortOrder: 1, syncStatus: .pendingUpdate)
+        // Local version is already synced, but older.
+        let local = Task(
+            title: "Local copy",
+            taskDescription: "",
+            status: .todo,
+            createdAt: older,
+            updatedAt: older,
+            sortOrder: 1,
+            syncStatus: .synced
+        )
+
         try await localStore.upsert(local)
 
+        // Remote version has the same ID but a newer timestamp.
         var remote = local
         remote.title = "Remote edit (newer)"
         remote.updatedAt = newer
         remote.syncStatus = .synced
+
         remoteService.seed(remote)
 
         await syncEngine.syncNow()
 
-        let _fetched_stored = try await localStore.fetchTask(id: local.id)
-        let stored = try XCTUnwrap(_fetched_stored)
-        XCTAssertEqual(stored.title, "Remote edit (newer)")
-        XCTAssertEqual(stored.syncStatus, .synced)
+        let fetched = try await localStore.fetchTask(id: local.id)
+        let stored = try XCTUnwrap(fetched)
+
+        XCTAssertEqual(
+            stored.title,
+            "Remote edit (newer)"
+        )
+
+        XCTAssertEqual(
+            stored.updatedAt,
+            newer
+        )
+
+        XCTAssertEqual(
+            stored.syncStatus,
+            .synced
+        )
     }
 
     func testRemoteDeleteOfSyncedTaskRemovesItLocally() async throws {
