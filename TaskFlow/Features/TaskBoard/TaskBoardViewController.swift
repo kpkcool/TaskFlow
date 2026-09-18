@@ -60,21 +60,30 @@ final class TaskBoardViewController: UIViewController {
         return collectionView
     }()
 
-    private let bannerContainer: UIView = {
-        let view = UIView()
-        view.isHidden = true
-        return view
-    }()
+    /// Floating toast that overlays the collection view - never pushes
+    /// it down or triggers a relayout. Auto-hides after 3 seconds.
+    private let toastLabel: UIPaddedLabel = {
+        let label = UIPaddedLabel()
 
-    private let bannerLabel: UILabel = {
-        let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .footnote)
+        label.font = .preferredFont(
+            forTextStyle: .footnote,
+            compatibleWith: nil
+        )
         label.textColor = .white
-        label.numberOfLines = 0
+        label.numberOfLines = 1
         label.textAlignment = .center
         label.adjustsFontForContentSizeCategory = true
+        label.backgroundColor = .systemOrange
+        label.layer.cornerRadius = 18
+        label.layer.cornerCurve = .continuous
+        label.clipsToBounds = true
+        label.alpha = 0
+        label.isUserInteractionEnabled = false
+
         return label
     }()
+
+    private var toastHideWork: DispatchWorkItem?
 
     private let emptyStateLabel: UILabel = {
         let label = UILabel()
@@ -136,14 +145,14 @@ final class TaskBoardViewController: UIViewController {
 
     deinit {
         let viewModel = viewModel
-        _Concurrency.Task { @MainActor in
+        Task { @MainActor in
             viewModel.stop()
         }
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Task Board"
+        title = "Task Flow"
         view.backgroundColor = .systemGroupedBackground
 
         setupNavigationBar()
@@ -165,32 +174,64 @@ final class TaskBoardViewController: UIViewController {
     }
 
     private func setupLayout() {
-        bannerContainer.addSubview(bannerLabel)
-        bannerLabel.pinEdges(to: bannerContainer, insets: UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16))
+        view.addSubview(collectionView)
+        collectionView.pinToSafeArea(of: self)
 
-        let stack = UIStackView(arrangedSubviews: [bannerContainer, collectionView])
-        stack.axis = .vertical
-        view.addSubview(stack)
-        stack.pinToSafeArea(of: self)
-
+        // Add button first - toast references it.
         view.addSubview(addButton)
         addButton.translatesAutoresizingMaskIntoConstraints = false
+
         NSLayoutConstraint.activate([
             addButton.widthAnchor.constraint(equalToConstant: 56),
             addButton.heightAnchor.constraint(equalToConstant: 56),
-            addButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-            addButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20)
+            addButton.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -20
+            ),
+            addButton.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -20
+            )
         ])
 
-        // Position the empty-state label just above the + button so it
-        // doesn't overlap with the dashed section placeholders.
+        // Toast floats at bottom-right, just above the + button.
+        view.addSubview(toastLabel)
+        toastLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            toastLabel.bottomAnchor.constraint(
+                equalTo: addButton.topAnchor,
+                constant: -12
+            ),
+            toastLabel.centerXAnchor.constraint(
+                equalTo: view.centerXAnchor
+            ),
+            toastLabel.heightAnchor.constraint(
+                greaterThanOrEqualToConstant: 36
+            )
+        ])
+
+        // Position the empty-state label just above the + button
+        // so it doesn't overlap with the dashed section placeholders.
         view.addSubview(emptyStateLabel)
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+
         NSLayoutConstraint.activate([
-            emptyStateLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyStateLabel.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -16),
-            emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 32),
-            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -32)
+            emptyStateLabel.centerXAnchor.constraint(
+                equalTo: view.centerXAnchor
+            ),
+            emptyStateLabel.bottomAnchor.constraint(
+                equalTo: addButton.topAnchor,
+                constant: -16
+            ),
+            emptyStateLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: 32
+            ),
+            emptyStateLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -32
+            )
         ])
     }
 
@@ -285,17 +326,18 @@ final class TaskBoardViewController: UIViewController {
     }
 
     private func render(syncState: SyncState) {
-        if let message = syncState.bannerMessage {
-            bannerLabel.text = message
-            bannerContainer.backgroundColor = .systemOrange
-            bannerContainer.isHidden = false
-        } else {
-            bannerContainer.isHidden = true
-        }
-
+        // Update the nav-bar sync icon
         let icon = Self.icon(for: syncState)
-        let symbolImage = UIImage(systemName: icon.systemName)?.withRenderingMode(.alwaysTemplate)
-        syncStatusButton.setImage(symbolImage, for: .normal)
+
+        let symbolImage = UIImage(
+            systemName: icon.systemName
+        )?.withRenderingMode(.alwaysTemplate)
+
+        syncStatusButton.setImage(
+            symbolImage,
+            for: .normal
+        )
+
         syncStatusButton.tintColor = icon.tint
         syncStatusButton.accessibilityLabel = icon.accessibilityLabel
 
@@ -303,6 +345,44 @@ final class TaskBoardViewController: UIViewController {
             startSpinningSyncIcon()
         } else {
             stopSpinningSyncIcon()
+        }
+
+        // Show a brief toast for transient states, dismiss for settled ones.
+        if let message = syncState.bannerMessage {
+            showToast(message)
+        } else {
+            hideToast()
+        }
+    }
+    
+    private func showToast(_ message: String) {
+        toastHideWork?.cancel()
+
+        toastLabel.text = message
+
+        UIView.animate(withDuration: 0.25) {
+            self.toastLabel.alpha = 1
+        }
+
+        // Auto-hide after 3 seconds unless a new message replaces it.
+        let work = DispatchWorkItem { [weak self] in
+            self?.hideToast()
+        }
+
+        toastHideWork = work
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 3,
+            execute: work
+        )
+    }
+    
+    private func hideToast() {
+        toastHideWork?.cancel()
+        toastHideWork = nil
+
+        UIView.animate(withDuration: 0.25) {
+            self.toastLabel.alpha = 0
         }
     }
 
@@ -359,7 +439,7 @@ final class TaskBoardViewController: UIViewController {
     }
 
     @objc private func pulledToRefresh() {
-        _Concurrency.Task { [weak self] in
+        Task { [weak self] in
             await self?.viewModel.refreshAndWait()
             self?.refreshControl.endRefreshing()
         }
@@ -632,5 +712,34 @@ extension TaskBoardViewController: UICollectionViewDropDelegate {
         }
         // Below all cells — append at end.
         return tasks.count
+    }
+}
+
+// MARK: - UIPaddedLabel
+
+/// A UILabel with built-in content padding so the toast pill has insets
+/// without needing a wrapper view.
+private final class UIPaddedLabel: UILabel {
+
+    var contentInsets = UIEdgeInsets(
+        top: 8,
+        left: 16,
+        bottom: 8,
+        right: 16
+    )
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(
+            in: rect.inset(by: contentInsets)
+        )
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+
+        return CGSize(
+            width: size.width + contentInsets.left + contentInsets.right,
+            height: size.height + contentInsets.top + contentInsets.bottom
+        )
     }
 }
